@@ -265,78 +265,26 @@ static long driver_ioctl(struct file *f, unsigned int cmd, unsigned long arg) {{
         }}
         case IOCTL_READ_MMIO:
         {{
-            if (copy_from_user(&m_io_data_kernel, (struct mmio_data __user *)arg, sizeof(m_io_data_kernel))) {{ return -EFAULT; }}
-            unsigned long map_size = m_io_data_kernel.size > 0 ? m_io_data_kernel.size : m_io_data_kernel.value_size;
-            if (map_size == 0) {{
-                printk(KERN_ERR "%s: READ_MMIO: Map size is zero.\\n", DRIVER_NAME);
-                return -EINVAL;
-            }}
-            printk(KERN_INFO "%s: READ_MMIO: Requesting ioremap for phys_addr=0x%lx, map_size=%lu\\n",
-                   DRIVER_NAME, m_io_data_kernel.phys_addr, map_size);
-            mapped_addr = ioremap(m_io_data_kernel.phys_addr, map_size);
-            if (!mapped_addr) {{
-                printk(KERN_ERR "%s: READ_MMIO: ioremap for 0x%lx returned NULL!\\n",
-                       DRIVER_NAME, m_io_data_kernel.phys_addr);
+            struct mmio_data data;
+            if (copy_from_user(&data, (void __user *)arg, sizeof(data)))
+                return -EFAULT;
+            void __iomem *mmio = ioremap(data.phys_addr, data.size);
+            if (!mmio)
+                return -EFAULT;
+            void *kbuf = kmalloc(data.size, GFP_KERNEL);
+            if (!kbuf) {{
+                iounmap(mmio);
                 return -ENOMEM;
             }}
-            printk(KERN_INFO "%s: READ_MMIO: ioremap(0x%lx, %lu) successful, mapped_addr=%p\\n",
-                   DRIVER_NAME, m_io_data_kernel.phys_addr, map_size, mapped_addr);
-            if (m_io_data_kernel.size > 0) {{
-                if (!m_io_data_kernel.user_buffer) {{
-                    printk(KERN_ERR "%s: READ_MMIO: User buffer NULL.\\n", DRIVER_NAME);
-                    iounmap(mapped_addr);
-                    return -EFAULT;
-                }}
-                k_mmio_buffer = kmalloc(m_io_data_kernel.size, GFP_KERNEL);
-                if (!k_mmio_buffer) {{
-                    iounmap(mapped_addr);
-                    return -ENOMEM;
-                }}
-                for (len_to_copy = 0; len_to_copy < m_io_data_kernel.size; ++len_to_copy) {{
-                    k_mmio_buffer[len_to_copy] = readb(mapped_addr + len_to_copy);
-                }}
-                if (copy_to_user(m_io_data_kernel.user_buffer, k_mmio_buffer, m_io_data_kernel.size)) {{
-                    kfree(k_mmio_buffer);
-                    iounmap(mapped_addr);
-                    return -EFAULT;
-                }}
-                kfree(k_mmio_buffer);
-            }} else {{
-                 if (m_io_data_kernel.value_size == 4) {{
-                     u32 kernel_read_direct = readl(mapped_addr);
-                     printk(KERN_INFO "%s: READ_MMIO: Kernel direct readl from %p (phys 0x%lx) = 0x%x\\n",
-                            DRIVER_NAME, mapped_addr, m_io_data_kernel.phys_addr, kernel_read_direct);
-                     m_io_data_kernel.single_value = (unsigned long)kernel_read_direct;
-                 }} else {{
-                     switch(m_io_data_kernel.value_size) {{
-                        case 1:
-                            m_io_data_kernel.single_value = readb(mapped_addr);
-                            break;
-                        case 2:
-                            m_io_data_kernel.single_value = readw(mapped_addr);
-                            break;
-                        case 8:
-                            m_io_data_kernel.single_value = readq(mapped_addr);
-                            break;
-                        default:
-                            printk(KERN_ERR "%s: READ_MMIO: Invalid value_size %u\\n",
-                                   DRIVER_NAME, m_io_data_kernel.value_size);
-                            iounmap(mapped_addr);
-                            return -EINVAL;
-                     }}
-                 }}
-                 if (copy_to_user(&(((struct mmio_data __user *)arg)->single_value),
-                                 &m_io_data_kernel.single_value,
-                                 m_io_data_kernel.value_size)) {{
-                     iounmap(mapped_addr);
-                     return -EFAULT;
-                 }}
+            memcpy_fromio(kbuf, mmio, data.size);
+            if (copy_to_user(data.user_buffer, kbuf, data.size)) {{
+                kfree(kbuf);
+                iounmap(mmio);
+                return -EFAULT;
             }}
-            iounmap(mapped_addr);
-
-            // Force hypercall after operation
-            force_hypercall();
-            break;
+            kfree(kbuf);
+            iounmap(mmio);
+            return 0;
         }}
         case IOCTL_WRITE_MMIO:
         {{
@@ -801,25 +749,15 @@ int main(int argc, char *argv[]) {{
         exploit_delay(delay_ns);
         printf("Delayed for %d nanoseconds.\\n", delay_ns);
     }} else if (strcmp(cmd, "scanmmio") == 0) {{
-        if (argc != 5) {{ 
+        if (argc != 5) {{
             print_usage(argv[0]);
-            close(fd); 
-            return 1; 
-        }}
-        unsigned long start = strtoul(argv[2], NULL, 16);
-        unsigned long end = strtoul(argv[3], NULL, 16);
-        unsigned long step = strtoul(argv[4], NULL, 10);
-        struct mmio_data data = {0};
-        unsigned char *buf = malloc(step);
-        if (!buf) {{
-            perror("malloc for scanmmio buffer");
             close(fd);
             return 1;
         }}
         unsigned long start = strtoul(argv[2], NULL, 16);
         unsigned long end = strtoul(argv[3], NULL, 16);
         unsigned long step = strtoul(argv[4], NULL, 10);
-        struct mmio_data data = {0};
+        struct mmio_data data = {{0}};
         unsigned char *buf = malloc(step);
         if (!buf) {{
             perror("malloc for scanmmio buffer");
@@ -982,7 +920,7 @@ def generic_probe(dev_path):
                 except Exception:
                     pass
     except Exception as e:
-        print(f"[-] Failed to open {dev_path}: {e}")
+        print(f"[-] Failed to open dev_path}}: {e}")
 
 def get_kvm_related_modules():
     """
