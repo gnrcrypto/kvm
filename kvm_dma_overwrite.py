@@ -642,6 +642,7 @@ void print_usage(char *prog_name) {{
     fprintf(stderr, "  writevqdesc <idx> <buf_gpa_hex> <buf_len_str> <flags_hex> <next_idx_dec>\\n");
     fprintf(stderr, "  trigger_hypercall                 (Directly trigger hypercall)\\n");
     fprintf(stderr, "  exploit_delay <nanoseconds>       (Inject delay for race conditions)\\n");
+    fprintf(stderr, "  scanmmio <start_addr_hex> <end_addr_hex> <step_bytes>\\n");
 }}
 
 unsigned char *hex_string_to_bytes(const char *hex_str, unsigned long *num_bytes) {{
@@ -799,6 +800,47 @@ int main(int argc, char *argv[]) {{
         int delay_ns = atoi(argv[2]);
         exploit_delay(delay_ns);
         printf("Delayed for %d nanoseconds.\\n", delay_ns);
+    }} else if (strcmp(cmd, "scanmmio") == 0) {{
+        if (argc != 5) {{ 
+            print_usage(argv[0]);
+            close(fd); 
+            return 1; 
+        }}
+        unsigned long start = strtoul(argv[2], NULL, 16);
+        unsigned long end = strtoul(argv[3], NULL, 16);
+        unsigned long step = strtoul(argv[4], NULL, 10);
+        struct mmio_data data = {0};
+        unsigned char *buf = malloc(step);
+        if (!buf) {{
+            perror("malloc for scanmmio buffer");
+            close(fd);
+            return 1;
+        }}
+        unsigned long start = strtoul(argv[2], NULL, 16);
+        unsigned long end = strtoul(argv[3], NULL, 16);
+        unsigned long step = strtoul(argv[4], NULL, 10);
+        struct mmio_data data = {0};
+        unsigned char *buf = malloc(step);
+        if (!buf) {{
+            perror("malloc for scanmmio buffer");
+            close(fd);
+            return 1;
+        }}
+        for (unsigned long addr = start; addr < end; addr += step) {{
+            memset(buf, 0, step);
+            data.phys_addr = addr;
+            data.size = step;
+            data.user_buffer = buf;
+            if (ioctl(fd, IOCTL_READ_MMIO, &data) < 0) {{
+                printf("MMIO 0x%lX: <read error>\\n", addr);
+            }} else {{
+                printf("MMIO 0x%lX: ", addr);
+                for (unsigned long i = 0; i < step; ++i)
+                    printf("%02X", buf[i]);
+                printf("\\n");
+            }}
+        }}
+        free(buf);
     }} else {{
         fprintf(stderr, "Unknown command: %s\\n", cmd);
         print_usage(argv[0]);
@@ -905,7 +947,7 @@ PLUGIN_DIR = "./plugins"
 PLUGIN_TEMPLATE = '''from dynamic_kvm_prober import generic_probe
 
 def probe(dev_path):
-    print(f"[PLUGIN:{plugin_name}] Probing {{dev_path}} (auto-generated, dynamic).")
+    print(f"[PLUGIN:{{plugin_name}}] Probing {{dev_path}} (auto-generated, dynamic).")
     generic_probe(dev_path)
 '''
 def ensure_plugin(name):
@@ -1009,9 +1051,3 @@ if __name__ == "__main__":
 if __name__ == '__main__':
     setup_kvm_probe_lab()
 
-from dynamic_kvm_prober import generic_probe
-
-def probe(dev_path):
-    plugin_name = "unknown_plugin"
-    print(f"[PLUGIN:{plugin_name}] Probing {dev_path} (auto-generated, dynamic).")
-    generic_probe(dev_path)
