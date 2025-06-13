@@ -18,7 +18,7 @@ echo -e "\n\033[1;36m[*] Installing missing packages...\033[0m"
 sleep 1
 apt update -y >/dev/null
 apt-get --fix-broken install -y
-apt install sudo make xxd -y >/dev/null || true
+apt install sudo make xxd python3-pip build-essential binutils tar -y >/dev/null || true
 apt install -f -y >/dev/null
 sleep 2
 
