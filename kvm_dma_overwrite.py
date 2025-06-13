@@ -779,6 +779,37 @@ int main(int argc, char *argv[]) {{
             }}
         }}
         free(buf);
+    }} else if (strcmp(cmd, "scanmmio") == 0) {{
+        if (argc != 5) {{
+            print_usage(argv[0]);
+            close(fd);
+            return 1;
+        }}
+        unsigned long start = strtoul(argv[2], NULL, 16);
+        unsigned long end = strtoul(argv[3], NULL, 16);
+        unsigned long step = strtoul(argv[4], NULL, 10);
+        struct mmio_data data = {{0}};
+        unsigned char *buf = malloc(step);
+        if (!buf) {{
+            perror("malloc for scanmmio buffer");
+            close(fd);
+            return 1;
+        }}
+        for (unsigned long addr = start; addr < end; addr += step) {{
+            memset(buf, 0, step);
+            data.phys_addr = addr;
+            data.size = step;
+            data.user_buffer = buf;
+            if (ioctl(fd, IOCTL_READ_MMIO, &data) < 0) {{
+                printf("MMIO 0x%lX: <read error>\\n", addr);
+            }} else {{
+                printf("MMIO 0x%lX: ", addr);
+                for (unsigned long i = 0; i < step; ++i)
+                    printf("%02X", buf[i]);
+                printf("\\n");
+            }}
+        }}
+        free(buf);
     }} else {{
         fprintf(stderr, "Unknown command: %s\\n", cmd);
         print_usage(argv[0]);
